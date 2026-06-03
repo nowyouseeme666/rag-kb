@@ -1,0 +1,24 @@
+# RAG 知识库项目依赖
+
+# LangChain 核心
+langchain
+langchain-community
+langchain-text-splitters
+langchain-chroma
+langchain-huggingface
+
+# ChromaDB 向量数据库
+chromadb
+
+# HuggingFace Embedding
+sentence-transformers
+
+# DeepSeek LLM 接入
+langchain-deepseek
+
+# Web 界面
+streamlit
+
+# 底层依赖
+pydantic
+python-dotenv
