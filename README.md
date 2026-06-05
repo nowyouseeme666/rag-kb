@@ -1,6 +1,6 @@
-# Agent 开发知识库 - RAG 问答系统
+# Agent 开发知识库 — RAG 问答系统
 
-基于 LangChain 构建的 RAG（检索增强生成）问答系统，面向 Agent 开发场景，支持文档入库、语义检索和 LLM 增强回答。
+基于 LangChain + Streamlit 构建的 RAG（检索增强生成）问答系统，面向 Agent 开发场景，支持文档入库、语义检索和多轮对话。
 
 ## 技术栈
 
@@ -10,6 +10,7 @@
 | Embedding | `BAAI/bge-small-zh-v1.5` | 中文语义向量，轻量高效 |
 | 向量库 | ChromaDB | 本地持久化，零配置 |
 | 框架 | LangChain LCEL | 声明式管道，可读性强 |
+| 界面 | Streamlit | Web UI，支持多轮对话 |
 
 ## 快速开始
 
@@ -25,7 +26,8 @@ pip install -r requirements.txt
 ### 2. 设置 API Key
 
 ```bash
-set DEEPSEEK_API_KEY=你的DeepSeek密钥
+# 在项目根目录创建 .env 文件，写入：
+DEEPSEEK_API_KEY=你的DeepSeek密钥
 ```
 
 ### 3. 文档入库
@@ -41,42 +43,43 @@ set HF_ENDPOINT=https://hf-mirror.com
 python ingest.py
 ```
 
-### 4. 启动问答
+### 4. 启动 Web 界面
 
 ```bash
-python main.py
+streamlit run app.py
 ```
 
-交互示例：
+浏览器打开 `http://localhost:8501` 即可使用。
 
-```
-==================================================
-  Agent 开发知识库
-  输入问题开始查询，输入 quit 退出
-==================================================
+特性：
+- **多轮对话**：自动结合上文理解问题
+- **来源溯源**：每个回答可展开查看引用片段和相关度
+- **侧边栏**：实时显示文档块数量、已入库文档数、当前配置参数
+- **一键清空**：侧边栏按钮清空对话历史
 
->>> LangChain 的 LCEL 是什么？
-[返回带来源标注的答案...]
+## 文档库内容
 
->>> quit
-再见！
-```
+`data/` 目录包含以下技术文档，入库后可通过问答检索：
+
+| 分类 | 文档 |
+|------|------|
+| LangChain | LCEL、ChatBot、Installation、Structured Output、Agents、Tool Calling |
+| LangGraph | Graph API、Graph API Overview、State、Conditional、Checkpoint、Memory、Missing Checkpointer、Long-term Memory、Streaming、ReAct、Subgraph、Agentic RAG、Supervisor Agent、Tool-calling Agent |
+| DeepSeek | API Overview、Chat Prefix、Chat、Error Codes、Function Calling、Pricing、Rate Limit、Reasoner、Token Usage |
 
 ## 项目结构
 
 ```
 rag-kb/
+├── app.py             # Streamlit Web 界面（多轮对话）
 ├── config.py          # 配置常量（chunk_size, 模型, 阈值等）
 ├── ingest.py          # 文档入库脚本（扫描 data/ → 切分 → 向量化 → ChromaDB）
 ├── qa_chain.py        # RAG 问答链（LCEL 管道：检索 → 提示 → LLM → 输出）
-├── main.py            # CLI 交互入口
+├── fetch_docs.py      # 文档抓取脚本（从官方文档站拉取 .md）
 ├── requirements.txt   # Python 依赖
 ├── README.md          # 本文件
-├── data/              # 待入库的 .md 文档
-│   ├── langchain-lcel.md.md
-│   ├── langchain-rag.md.md
-│   ├── langgraph-state.md.md
-│   └── ...
+├── .env               # 环境变量（API Key 等，不入库）
+├── data/              # 待入库的 .md 文档（27 篇）
 ├── chroma_db/         # ChromaDB 持久化目录（ingest 后生成）
 └── tests/
     ├── test_qa.py     # 功能验证脚本
@@ -90,10 +93,11 @@ rag-kb/
 
 | 文件 | 职责 |
 |------|------|
+| `app.py` | Streamlit Web 界面：资源缓存、多轮对话、来源展示、侧边栏状态 |
 | `config.py` | 所有可调参数集中管理：chunk 切分、模型名称、检索 K 值、相似度阈值 |
 | `ingest.py` | 扫描 `data/` → TextLoader 加载 → RecursiveCharacterTextSplitter 切分 → bge-small-zh 向量化 → 写入 ChromaDB |
-| `qa_chain.py` | 加载 ChromaDB → 构建 LCEL 管道 → `build_qa_chain()` 返回 chain 对象 |
-| `main.py` | 环境检查 → 加载 chain → CLI 循环读输入 → 调用 chain.invoke → 打印回答 |
+| `qa_chain.py` | 加载 ChromaDB → 构建 LCEL 管道 → `build_conversational_chain()` 支持多轮对话 |
+| `fetch_docs.py` | 从 LangChain/LangGraph/DeepSeek 官方文档站抓取内容，自动生成 .md 文件 |
 
 ## 技术选型理由
 
@@ -120,7 +124,5 @@ rag-kb/
 
 1. **Embedding 模型仅支持中文**：`bge-small-zh-v1.5` 对英文检索效果有限，需切换到多语言模型
 2. **相似度阈值固定为 0.5**：阈值过低可能引入噪声，过高可能漏掉相关结果，不同场景需调优
-3. **不支持流式输出**：当前 `StrOutputParser` 为一次性返回，无打字机效果
-4. **不支持多轮对话**：每轮问答独立，无对话历史上下文
-5. **ChromaDB 为本地单机**：不支持分布式部署和多用户并发
-6. **检索策略为朴素相似度**：未使用 HyDE、Multi-Query、Rerank 等进阶技术
+3. **ChromaDB 为本地单机**：不支持分布式部署和多用户并发
+4. **检索策略为朴素相似度**：未使用 HyDE、Multi-Query、Rerank 等进阶技术
