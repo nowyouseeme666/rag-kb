@@ -6,6 +6,10 @@ RAG 知识库文档入库脚本
 import glob
 import os
 
+# 加载 .env（必须在其他模块导入前执行，否则 HuggingFace 直连被墙）
+from dotenv import load_dotenv
+load_dotenv(os.path.join(os.path.dirname(__file__), ".env"))
+
 from langchain_chroma import Chroma
 from langchain_community.document_loaders import TextLoader
 from langchain_huggingface import HuggingFaceEmbeddings

@@ -22,3 +22,6 @@ streamlit
 # 底层依赖
 pydantic
 python-dotenv
+
+# 文档抓取（可选）
+html2text

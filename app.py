@@ -1,5 +1,5 @@
 """
-Agent 开发知识库 — Streamlit Web 界面
+Agent 开发知识库 — Streamlit Web 界面（多轮对话）
 """
 import os
 import sys
@@ -13,7 +13,7 @@ from langchain_chroma import Chroma
 from langchain_huggingface import HuggingFaceEmbeddings
 
 import config
-from qa_chain import build_qa_chain
+from qa_chain import _format_history, build_conversational_chain
 
 # ── 页面配置 ──
 st.set_page_config(
@@ -29,16 +29,10 @@ st.markdown(
 <style>
     /* ── 全局 ── */
     .stMain {
-        padding-top: 2rem;
+        padding-top: 1rem;
     }
 
     /* ── 排版 ── */
-    .stMarkdown {
-        line-height: 1.7;
-    }
-    .stMarkdown p {
-        margin-bottom: 0.8rem;
-    }
     h1 {
         font-size: 1.6rem !important;
         font-weight: 600 !important;
@@ -64,46 +58,27 @@ st.markdown(
         color: #555;
     }
 
-    /* ── 输入框：缩小 + 居中 ── */
-    textarea {
-        font-size: 0.925rem !important;
-        line-height: 1.55 !important;
-        border-radius: 8px !important;
-        border: 1px solid #d4d4d4 !important;
-        max-width: 600px;
-        margin: 0 auto;
-        display: block;
-    }
-    textarea:focus {
-        border-color: #2563EB !important;
-        box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.12) !important;
-    }
-
-    /* ── 表单容器居中 ── */
-    [data-testid="stForm"] {
-        max-width: 640px;
-        margin: 0 auto;
-    }
-
-    /* ── 按钮 ── */
-    .stButton button {
-        border-radius: 8px;
-        font-weight: 500;
-        font-size: 0.875rem;
-        padding: 0.4rem 1.25rem;
-    }
-
-    /* ── Expander ── */
-    .streamlit-expanderHeader {
-        font-size: 0.85rem;
-        color: #666;
-    }
-
-    /* ── 空状态引导 ── */
-    .empty-hint {
+    /* ── 来源引用小字 ── */
+    .source-tag {
+        display: inline-block;
+        font-size: 0.75rem;
         color: #888;
-        font-size: 0.875rem;
+        background: #f0f0f0;
+        border-radius: 4px;
+        padding: 1px 6px;
+        margin-right: 4px;
+    }
+
+    /* ── 空状态 ── */
+    .welcome-hint {
         text-align: center;
+        color: #999;
+        padding: 3rem 1rem;
+        font-size: 0.925rem;
+        line-height: 1.8;
+    }
+    .welcome-hint p {
+        margin: 0.3rem 0;
     }
 </style>
 """,
@@ -133,8 +108,8 @@ def _get_vectorstore():
 
 @st.cache_resource
 def _get_chain():
-    """RAG Chain（全局单例）"""
-    return build_qa_chain()
+    """多轮对话 RAG Chain（全局单例）"""
+    return build_conversational_chain()
 
 
 def _retrieve_for_display(query: str):
@@ -152,7 +127,13 @@ def _retrieve_for_display(query: str):
     return filtered
 
 
-# ── 侧边栏：向量库统计 ──
+# ── 会话初始化 ──
+
+if "messages" not in st.session_state:
+    st.session_state.messages = []
+
+
+# ── 侧边栏 ──
 
 with st.sidebar:
     st.markdown("## 🧠 Agent 知识库")
@@ -186,91 +167,77 @@ with st.sidebar:
 
     st.divider()
 
-    if st.button("🗑️ 清空输入", use_container_width=True):
-        st.session_state.question_input = ""
+    if st.button("🗑️ 清空对话", use_container_width=True):
+        st.session_state.messages = []
+        st.rerun()
+
 
 # ── 主区域 ──
 
 st.title("Agent 开发知识库")
 st.caption(
     "基于 RAG 检索增强生成，覆盖 LangChain、LangGraph、DeepSeek 等技术文档。"
-    "答案由 DeepSeek V4-Flash 生成，可溯源至原始文档。"
+    "支持多轮对话，答案可溯源至原始文档。"
 )
 
-# ── 引导文字 ──
-st.markdown(
-    "<p style='"
-    "text-align: center;"
-    "font-family: Georgia, 'Times New Roman', serif;"
-    "font-style: italic;"
-    "font-size: 0.85rem;"
-    "letter-spacing: 0.12em;"
-    "color: #999;"
-    "margin: 1.75rem 0 0.75rem 0;"
-    "text-transform: uppercase;"
-    "'>Pose Your Questions</p>",
-    unsafe_allow_html=True,
-)
+# ── 对话历史渲染 ──
 
-# ── 问答表单 ──
+for msg in st.session_state.messages:
+    with st.chat_message(msg["role"]):
+        st.markdown(msg["content"])
 
-default_q = st.session_state.get("question_input", "")
+# ── 空状态欢迎语 ──
 
-with st.form("query_form", clear_on_submit=False):
-    question = st.text_area(
-        "输入问题",
-        value=default_q,
-        placeholder=(
-            "LangChain 的 LCEL 管道符有什么作用？"
-        ),
-        height=52,
-        label_visibility="collapsed",
-        key="question_input",
-    )
-    submitted = st.form_submit_button("🔍 查询", use_container_width=True)
-
-# ── 处理查询 ──
-
-if submitted and question.strip():
-    with st.spinner("正在检索知识库并生成回答..."):
-        try:
-            chain = _get_chain()
-            answer = chain.invoke({"question": question.strip()})
-        except Exception as e:
-            st.error(f"查询失败 [{type(e).__name__}]：{e}")
-            st.stop()
-
-    st.markdown("---")
-    st.markdown("### 💬 回答")
-    st.markdown(answer)
-
-    # 来源展开
-    retrieved = _retrieve_for_display(question.strip())
-    with st.expander("📎 查看引用来源", expanded=False):
-        if not retrieved:
-            st.info("未检索到高度相关的文档片段（相似度均低于阈值）。")
-        else:
-            for i, (doc, score) in enumerate(retrieved, 1):
-                source_name = doc.metadata.get("source", "unknown")
-                st.markdown(
-                    f"**片段 {i}** · "
-                    f"来源 `{source_name}` · "
-                    f"相关度 `{score:.3f}`"
-                )
-                st.markdown(doc.page_content)
-                if i < len(retrieved):
-                    st.divider()
-
-elif submitted and not question.strip():
-    st.warning("请输入问题后再查询。")
-
-# ── 空状态引导 ──
-
-if not submitted:
-    st.markdown("---")
+if not st.session_state.messages:
     st.markdown(
-        "<p class='empty-hint'>"
-        "输入问题后点击「查询」或按 Ctrl+Enter 提交"
-        "</p>",
+        "<div class='welcome-hint'>"
+        "<p>👋 输入你的问题，开始查询知识库</p>"
+        "<p style='font-size:0.8rem;color:#bbb;'>支持多轮对话，会自动结合上文理解你的问题</p>"
+        "</div>",
         unsafe_allow_html=True,
     )
+
+# ── 输入框 ──
+
+if question := st.chat_input("输入问题，按 Enter 发送…"):
+    # 1. 添加用户消息
+    st.session_state.messages.append({"role": "user", "content": question})
+
+    # 2. 渲染用户消息
+    with st.chat_message("user"):
+        st.markdown(question)
+
+    # 3. 生成回答
+    with st.chat_message("assistant"):
+        # 构建历史文本（不包含当前问题）
+        history_messages = st.session_state.messages[:-1]
+        history_text = _format_history(history_messages)
+
+        with st.spinner(""):
+            try:
+                chain = _get_chain()
+                answer = chain.invoke({
+                    "question": question,
+                    "chat_history": history_text,
+                })
+                st.markdown(answer)
+            except Exception as e:
+                error_msg = f"查询失败 [{type(e).__name__}]：{e}"
+                st.error(error_msg)
+                answer = f"（系统错误：{error_msg}）"
+
+        # 4. 来源展示
+        retrieved = _retrieve_for_display(question)
+        if retrieved:
+            with st.expander("📎 查看引用来源"):
+                for i, (doc, score) in enumerate(retrieved, 1):
+                    source_name = doc.metadata.get("source", "unknown")
+                    st.caption(
+                        f"**片段 {i}** · `{source_name}` · 相关度 {score:.3f}"
+                    )
+                    st.markdown(doc.page_content)
+                    if i < len(retrieved):
+                        st.divider()
+
+    # 5. 保存回答到历史
+    st.session_state.messages.append({"role": "assistant", "content": answer})
