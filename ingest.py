@@ -41,7 +41,7 @@ def ingest() -> None:
             doc.metadata["source"] = filename
 
         all_documents.extend(docs)
-        print(f"  ✓ 已加载: {filename}  ({len(docs)} 页)")
+        print(f"  [OK] {filename}  ({len(docs)} pages)")
 
     # 4. 文档切分
     text_splitter = RecursiveCharacterTextSplitter(
